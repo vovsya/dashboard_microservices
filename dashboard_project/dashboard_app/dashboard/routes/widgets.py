@@ -41,10 +41,9 @@ async def change_widgets(
     choice: Choice = Form(..., description="Выберите действие"),
     current_user_id: int = Depends(get_current_user)
 ):
-    
     widget = choice_func(widget)
     choice = (choice == Choice.add)
-        
+
     async with engine.begin() as conn:
         res = await conn.execute(text(
             f"""
@@ -53,20 +52,103 @@ async def change_widgets(
             WHERE user_id = :user_id and page = :page
             """
         ), {"user_id": current_user_id, "page": page, "choice": choice})
-    
+
         if res.rowcount == 0:
             raise HTTPException(status_code=404, detail="Не удалось изменить виджет")
-        
+
     if choice:
         return {"Виджет": "добавлен"}
     return {"Виджет": "удален"}
 
+
+@widgets_router.post("/sites/creation")
+async def create_site_monitor(
+    url: str = Form(..., description="URL сайта (http/https)"),
+    interval_minutes: int = Form(5, ge=1, le=1440, description="Интервал проверки в минутах"),
+    current_user_id: int = Depends(get_current_user),
+):
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                INSERT INTO site_monitors (user_id, url, interval_minutes, registration_status)
+                VALUES (:user_id, :url, :interval_minutes, 'pending')
+                ON CONFLICT (user_id, url) DO UPDATE
+                    SET interval_minutes = EXCLUDED.interval_minutes,
+                        registration_status = 'pending',
+                        updated_at = NOW()
+                """
+            ),
+            {
+                "user_id": current_user_id,
+                "url": url.strip(),
+                "interval_minutes": interval_minutes,
+            },
+        )
+
+    try:
+        stream_msg_id = await publish_register_monitor_command(
+            user_id=current_user_id,
+            url=url.strip(),
+            interval_minutes=interval_minutes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Redis stream недоступен: {e}") from e
+
+    return {
+        "Мониторинг сайта": "запрошен",
+        "url": url.strip(),
+        "interval_minutes": interval_minutes,
+        "stream_message_id": stream_msg_id,
+    }
+
+
+@widgets_router.get("/sites")
+async def list_site_monitors(current_user_id: int = Depends(get_current_user)):
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            text(
+                """
+                SELECT id, monitor_id, url, interval_minutes, registration_status,
+                       last_status, last_checked_at, last_changed, last_error
+                FROM site_monitors
+                WHERE user_id = :user_id
+                ORDER BY url
+                """
+            ),
+            {"user_id": current_user_id},
+        )
+        rows = [dict(r) for r in res.mappings().all()]
+    return {"Мониторинг сайтов": rows}
+
+
+@widgets_router.delete("/sites/{site_id}")
+async def delete_site_monitor(
+    site_id: int = Path(..., description="ID записи мониторинга в dashboard БД"),
+    current_user_id: int = Depends(get_current_user)
+):
+    async with engine.begin() as conn:
+        res = await conn.execute(
+            text(
+                """
+                DELETE FROM site_monitors
+                WHERE id = :id AND user_id = :user_id
+                """
+            ),
+            {"id": site_id, "user_id": current_user_id},
+        )
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Монитор не найден")
+
+    return {"Мониторинг сайта": "удален"}
+
+
 @widgets_router.post("/todo/creation")
 async def create_todo(
-    number: int             = Form(..., description="Придумайте номер задаче", ge=1),
-    task: str               = Form(..., description="Опишите задачу"),
-    task_date: date     = Form(..., description="Дата задачи в формате YEAR-MM-DD", examples=["2025-02-28"]),
-    current_user_id: int    = Depends(get_current_user)
+    number: int = Form(..., description="Придумайте номер задаче", ge=1),
+    task: str = Form(..., description="Опишите задачу"),
+    task_date: date = Form(..., description="Дата задачи в формате YEAR-MM-DD", examples=["2025-02-28"]),
+    current_user_id: int = Depends(get_current_user)
 ):
     async with engine.begin() as conn:
         res = await conn.execute(text(
@@ -80,8 +162,9 @@ async def create_todo(
 
         if res.rowcount == 0:
             raise HTTPException(status_code=409, detail="Не удалось добавить задачу")
-    
+
     return {"Задача": "добавлена"}
+
 
 @widgets_router.delete("/todo/{number}")
 async def delete_todo(
@@ -98,16 +181,17 @@ async def delete_todo(
 
         if res.rowcount == 0:
             raise HTTPException(status_code=409, detail="Задачи не существует")
-    
+
     return {"Задача": "удалена"}
+
 
 @widgets_router.post("/diet/creation")
 async def create_diet(
-    diet_date: date         = Body(..., description="Введите дату рациона в формате YEAR-MM-DD"),
-    breakfast: str | None   = Body(None, description="Завтрак"),
-    lunch: str | None       = Body(None, description="Обед"),
-    dinner: str | None      = Body(None, description="Ужин"),
-    current_user_id: int    = Depends(get_current_user)
+    diet_date: date = Body(..., description="Введите дату рациона в формате YEAR-MM-DD"),
+    breakfast: str | None = Body(None, description="Завтрак"),
+    lunch: str | None = Body(None, description="Обед"),
+    dinner: str | None = Body(None, description="Ужин"),
+    current_user_id: int = Depends(get_current_user)
 ):
     async with engine.begin() as conn:
         res = await conn.execute(text(
@@ -121,13 +205,14 @@ async def create_diet(
 
         if res.rowcount == 0:
             raise HTTPException(status_code=409, detail="Не удалось добавить рацион")
-    
+
     return {"Дневной рацион": "добавлен"}
+
 
 @widgets_router.delete("/diet/{diet_date}")
 async def delete_diet(
-    diet_date: date         = Path(..., description="Введите дату рациона в формате YEAR-MM-DD"),
-    current_user_id: int    = Depends(get_current_user)
+    diet_date: date = Path(..., description="Введите дату рациона в формате YEAR-MM-DD"),
+    current_user_id: int = Depends(get_current_user)
 ):
     async with engine.begin() as conn:
         res = await conn.execute(text(
@@ -139,9 +224,8 @@ async def delete_diet(
 
         if res.rowcount == 0:
             raise HTTPException(status_code=404, detail="В этот день рациона не запланирован")
-    
-    return {"Рацион": "удален"}
 
+    return {"Рацион": "удален"}
 
 
     

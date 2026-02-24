@@ -1,0 +1,1 @@
+from dashboard_app.dashboard.core.app import dashboard_app

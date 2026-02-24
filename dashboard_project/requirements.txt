@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+alembic
+python-dotenv
+psycopg2-binary
+asyncpg
+httpx
+python-jose[cryptography]
+python-multipart
+PyJWT
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+pytest==8.3.4
+redis>=5.0.0

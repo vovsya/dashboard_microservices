@@ -1,0 +1,44 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenv / Conda
+.venv/
+venv/
+env/
+.conda/
+conda/
+pythonenv*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+.DS_Store
+Thumbs.db
+
+.env
+.env.*
+!.env.example
+
+*.log
+
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+.mypy_cache/
+.ruff_cache/
+
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+
+migrations/**/__pycache__/
+
+*.db
+
+*.pid

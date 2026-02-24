@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sitewatch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sitewatch"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/sitewatch?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      LLM_URL: "http://host.docker.internal:11434"
+      HTTP_ADDR: ":8000"
+      DASHBOARD_EVENT_STREAM: "dashboard_monitor_events"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: .
+    command: ["/worker"]
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/sitewatch?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      REDIS_STREAM: "site_jobs"
+      REDIS_GROUP: "workers"
+      WORKER_NAME: "worker-1"
+      DASHBOARD_EVENT_STREAM: "dashboard_monitor_events"
+      HTTP_TIMEOUT_SEC: "20"
+      MAX_BODY_BYTES: "2097152"
+      MAX_TEXT_CHARS: "200000"
+      MAX_DIFF_CHARS: "12000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard_bridge:
+    build: .
+    command: ["/dashboard_bridge"]
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/sitewatch?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      REDIS_STREAM: "site_jobs"
+      DASHBOARD_CMD_STREAM: "dashboard_monitor_cmd"
+      DASHBOARD_CMD_GROUP: "dashboard_bridge"
+      DASHBOARD_EVENT_STREAM: "dashboard_monitor_events"
+      DASHBOARD_CONSUMER: "dashboard-bridge-1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
